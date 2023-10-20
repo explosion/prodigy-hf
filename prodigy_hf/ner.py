@@ -150,6 +150,7 @@ def build_metrics_func(label_list):
     eval_split=Arg("--eval-split", "-es", help="If no evaluation sets are provided for a component, split off a a percentage of the training examples for evaluation."),
     gpu_id=Arg("--gpu-id", "-g", help="GPU id for training on GPU."),
     learning_rate=Arg("--learning-rate", "-lr", help="Learning rate."),
+    verbose=Arg("--verbose", "-v", help="Output all the logs/warnings from huggingface libraries."),
     # fmt: on
 )
 def train_hf_ner(datasets: str,
@@ -160,10 +161,12 @@ def train_hf_ner(datasets: str,
                  batch_size: int=3,
                  eval_split: Optional[float] = None,
                  gpu_id: int = -1,
-                 learning_rate: float = 2e-5):
+                 learning_rate: float = 2e-5,
+                 verbose:bool = False):
     log("RECIPE: train.hf.ner started.")
-    set_transformers_verbosity_error()
-    disable_progress_bar()
+    if not verbose:
+        set_transformers_verbosity_error()
+        disable_progress_bar()
 
     train_examples, valid_examples = produce_train_eval_datasets(datasets, eval_split)
     gen_train, gen_valid, label_list, id2lab, lab2id = into_hf_format(train_examples, valid_examples)
