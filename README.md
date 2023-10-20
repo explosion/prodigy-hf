@@ -4,8 +4,6 @@
 
 # 🤗 Prodigy-HF
 
-![](images/approach.png)
-
 This repository contains recipes that can train huggingface models on datasets that have been annotated by Prodigy.
 
 You can install this plugin via `pip`. 

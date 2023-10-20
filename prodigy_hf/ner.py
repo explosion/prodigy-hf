@@ -1,5 +1,6 @@
-import transformers 
-from typing import List, Dict 
+import transformers
+from typing import List, Dict, Iterable, Optional
+from pathlib import Path
 
 import numpy as np
 import evaluate
@@ -7,6 +8,7 @@ import evaluate
 from datasets import Dataset, DatasetDict
 from transformers import AutoTokenizer, DataCollatorForTokenClassification, AutoModelForTokenClassification, TrainingArguments, Trainer
 from prodigy.components.db import connect
+from prodigy.core import recipe, Arg
 
 def get_label_names(examples: List[Dict], labels: List[str]=None) -> List[str]:
     """Go through all the examples, grab all labels from spans and convert to BI-labels."""
@@ -17,7 +19,7 @@ def get_label_names(examples: List[Dict], labels: List[str]=None) -> List[str]:
     for name in names:
         result.append(f"B-{name}")
         result.append(f"I-{name}")
-    return ['O'] + result 
+    return ['O'] + result
 
 
 def into_hf_format(examples: List[Dict]):
@@ -25,7 +27,8 @@ def into_hf_format(examples: List[Dict]):
     label_names = get_label_names(examples)
     id2label = {i: n for i, n in enumerate(label_names)}
     label2id = {n: i for i, n in enumerate(label_names)}
-    def generator():
+
+    def generator() -> Iterable[Dict]:
         for ex in examples:
             tokens = [tok['text'] for tok in ex["tokens"]]
             ner_tags = [0 for _ in tokens]
@@ -33,7 +36,7 @@ def into_hf_format(examples: List[Dict]):
                 ner_tags[span['token_start']] = label2id[f"B-{span['label']}"]
                 for i in range(span['token_start'] + 1, span['token_end'] + 1):
                     ner_tags[i] = label2id[f"I-{span['label']}"]
-                
+
             yield {
                 "text": ex["text"],
                 "tokens": tokens,
@@ -42,42 +45,63 @@ def into_hf_format(examples: List[Dict]):
             }
     return generator, id2label, label2id
 
-def tokenize_and_align_labels(examples):
-    """Taken from https://huggingface.co/docs/transformers/tasks/token_classification#load-wnut-17-dataset"""
-    tokenized_inputs = tokenizer(examples["tokens"], truncation=True, is_split_into_words=True)
 
-    labels = []
-    for i, label in enumerate(examples["ner_tags"]):
-        word_ids = tokenized_inputs.word_ids(batch_index=i)  # Map tokens to their respective word.
-        previous_word_idx = None
-        label_ids = []
-        for word_idx in word_ids:  # Set the special tokens to -100.
-            if word_idx is None:
-                label_ids.append(-100)
-            elif word_idx != previous_word_idx:  # Only label the first token of a given word.
-                label_ids.append(label[word_idx])
-            else:
-                label_ids.append(-100)
-            previous_word_idx = word_idx
-        labels.append(label_ids)
-
-    tokenized_inputs["labels"] = labels
-    return tokenized_inputs
-
-
-
-if __name__ == "__main__":
+@recipe(
+    "train.hf.ner",
+    # fmt: off
+    datasets=Arg(help="Datasets with NER annotations to train model for"),
+    out_dir=Arg(help="Folder to save trained model into"),
+    epochs=Arg("--epochs", "-e", help="Number of epochs to finetune"),
+    model_name=Arg("--model-name", "-m", help="HFmodel to use as a base model"),
+    label=Arg("--label", "-l", help="Subset of comma-separated label(s) to train model for"),
+    batch_size=Arg("--batch-size", "-bs", help="Batch size."),
+    eval_split=Arg("--eval-split", "-es", help="If no evaluation sets are provided for a component, split off a a percentage of the training examples for evaluation."),
+    gpu_id=Arg("--gpu-id", "-g", help="GPU id for training on GPU."),
+    learning_rate=Arg("--learning-rate", "-lr", help="Learning rate."),
+    # fmt: on
+)
+def train_hf_ner(datasets: str,
+                 out_dir: Path,
+                 epochs: int = 3,
+                 model_name: str = "distilbert-base-uncased",
+                 label: Optional[str]= None,
+                 batch_size:int=3,
+                 eval_split: Optional[float] = None,
+                 gpu_id:int = -1,
+                 learning_rate: float = 2e-5):
     transformers.logging.set_verbosity_error()
     db = connect()
-    model_name = "distilbert-base-uncased"
-    examples = db.get_dataset_examples("hf-demo")
+    examples = db.get_dataset_examples(datasets)
     generator, id2lab, lab2id = into_hf_format(examples)
     prodigy_dataset = DatasetDict(
-        train=Dataset.from_generator(generator), 
+        train=Dataset.from_generator(generator),
         eval=Dataset.from_generator(generator)
     )
-    
+
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    def tokenize_and_align_labels(examples):
+        """Taken from https://huggingface.co/docs/transformers/tasks/token_classification#load-wnut-17-dataset"""
+        tokenized_inputs = tokenizer(examples["tokens"], truncation=True, is_split_into_words=True)
+
+        labels = []
+        for i, label in enumerate(examples["ner_tags"]):
+            word_ids = tokenized_inputs.word_ids(batch_index=i)  # Map tokens to their respective word.
+            previous_word_idx = None
+            label_ids = []
+            for word_idx in word_ids:  # Set the special tokens to -100.
+                if word_idx is None:
+                    label_ids.append(-100)
+                elif word_idx != previous_word_idx:  # Only label the first token of a given word.
+                    label_ids.append(label[word_idx])
+                else:
+                    label_ids.append(-100)
+                previous_word_idx = word_idx
+            labels.append(label_ids)
+
+        tokenized_inputs["labels"] = labels
+        return tokenized_inputs
+
     tokenized_dataset = prodigy_dataset.map(tokenize_and_align_labels, batched=True)
 
     data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer)
@@ -85,7 +109,7 @@ if __name__ == "__main__":
     model = AutoModelForTokenClassification.from_pretrained(
         model_name, num_labels=len(id2lab), id2label=id2lab, label2id=lab2id
     )
-    
+
     seqeval = evaluate.load("seqeval")
 
     label_list = get_label_names(examples)
@@ -112,11 +136,11 @@ if __name__ == "__main__":
     }
 
     training_args = TrainingArguments(
-        output_dir="my_prodigy_model",
-        learning_rate=2e-5,
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=16,
-        num_train_epochs=2,
+        output_dir=out_dir,
+        learning_rate=learning_rate,
+        per_device_train_batch_size=batch_size,
+        per_device_eval_batch_size=batch_size,
+        num_train_epochs=epochs,
         weight_decay=0.01,
         evaluation_strategy="epoch",
         save_strategy="epoch",
