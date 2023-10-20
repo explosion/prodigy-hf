@@ -1,3 +1,6 @@
+import transformers 
+from typing import List, Dict 
+
 import numpy as np
 import evaluate
 
@@ -5,15 +8,20 @@ from datasets import Dataset, DatasetDict
 from transformers import AutoTokenizer, DataCollatorForTokenClassification, AutoModelForTokenClassification, TrainingArguments, Trainer
 from prodigy.components.db import connect
 
-def get_label_names(examples):
+def get_label_names(examples: List[Dict], labels: List[str]=None) -> List[str]:
+    """Go through all the examples, grab all labels from spans and convert to BI-labels."""
     names = {span['label'] for ex in examples for span in ex.get('spans', [])}
+    if labels:
+        names = [n for n in names if n in labels]
     result = []
     for name in names:
         result.append(f"B-{name}")
         result.append(f"I-{name}")
     return ['O'] + result 
-    
-def into_hf_format(examples):
+
+
+def into_hf_format(examples: List[Dict]):
+    """Turn the examples into variables/format that Huggingface expects."""
     label_names = get_label_names(examples)
     id2label = {i: n for i, n in enumerate(label_names)}
     label2id = {n: i for i, n in enumerate(label_names)}
@@ -35,6 +43,7 @@ def into_hf_format(examples):
     return generator, id2label, label2id
 
 def tokenize_and_align_labels(examples):
+    """Taken from https://huggingface.co/docs/transformers/tasks/token_classification#load-wnut-17-dataset"""
     tokenized_inputs = tokenizer(examples["tokens"], truncation=True, is_split_into_words=True)
 
     labels = []
@@ -58,6 +67,7 @@ def tokenize_and_align_labels(examples):
 
 
 if __name__ == "__main__":
+    transformers.logging.set_verbosity_error()
     db = connect()
     model_name = "distilbert-base-uncased"
     examples = db.get_dataset_examples("hf-demo")
