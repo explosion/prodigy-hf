@@ -4,7 +4,7 @@ from prodigy_hf.text import text_index, text_fetch, textcat_ann_manual, ner_ann_
 
 
 def test_basics(tmpdir):
-    examples_path = Path("tests/datasets/new-dataset.jsonl")
+    examples_path = Path("tests/datasets/fashion.jsonl")
     index_path = tmpdir / "new-dataset.index"
     fetch_path = tmpdir / "fetched.jsonl"
     query = "benchmarks"

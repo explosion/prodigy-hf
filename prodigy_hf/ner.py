@@ -1,14 +1,19 @@
+import random
+
 import transformers
 from typing import List, Dict, Iterable, Optional
 from pathlib import Path
 
 import numpy as np
 import evaluate
-
 from datasets import Dataset, DatasetDict
 from transformers import AutoTokenizer, DataCollatorForTokenClassification, AutoModelForTokenClassification, TrainingArguments, Trainer
+
 from prodigy.components.db import connect
 from prodigy.core import recipe, Arg
+from prodigy.types import NerExample
+from prodigy.components.validate import validate
+from prodigy.util import log
 
 def get_label_names(examples: List[Dict], labels: List[str]=None) -> List[str]:
     """Go through all the examples, grab all labels from spans and convert to BI-labels."""
@@ -22,13 +27,13 @@ def get_label_names(examples: List[Dict], labels: List[str]=None) -> List[str]:
     return ['O'] + result
 
 
-def into_hf_format(examples: List[Dict]):
+def into_hf_format(train_examples: List[Dict], valid_examples: List[Dict]):
     """Turn the examples into variables/format that Huggingface expects."""
-    label_names = get_label_names(examples)
+    label_names = get_label_names(train_examples)
     id2label = {i: n for i, n in enumerate(label_names)}
     label2id = {n: i for i, n in enumerate(label_names)}
 
-    def generator() -> Iterable[Dict]:
+    def generator(examples) -> Iterable[Dict]:
         for ex in examples:
             tokens = [tok['text'] for tok in ex["tokens"]]
             ner_tags = [0 for _ in tokens]
@@ -43,8 +48,44 @@ def into_hf_format(examples: List[Dict]):
                 "ner_tags": ner_tags,
                 "ner_labels": [id2label[t] for t in ner_tags]
             }
-    return generator, id2label, label2id
+    train_out = list(generator(train_examples))
+    valid_out = list(generator(valid_examples))
+    return train_out, valid_out, label_names, id2label, label2id
 
+
+def validate_examples(examples, dataset):
+    """Just make sure that we don't have non-NER tasks in here."""
+    log(f"RECIPE: Validating examples for NER task for {dataset} dataset.")
+    for ex in examples:
+        validate(NerExample, ex, error_msg=f"Found an invalid example for NER: {ex} from {dataset}.")
+    log(f"RECIPE: Validation complete.")
+
+
+def produce_train_eval_datasets(datasets: str, eval_split: Optional[float] = None):
+    """Handle all the eval: and --eval-split logic here."""
+    db = connect()
+    train_examples = []
+    valid_examples = []
+    for dataset in datasets.split(","):
+        examples = db.get_dataset_examples(dataset.replace("eval:", ""))
+        validate_examples(examples, dataset)
+        if "eval:" in dataset:
+            valid_examples.extend(examples)
+        else:
+            train_examples.extend(examples)
+    if len(valid_examples) == 0:
+        log("RECIPE: No eval set specified via `eval:<name>`.")
+        if eval_split:
+            log(f"RECIPE: Using--eval-split={eval_split}.")
+            random.seed(42)
+            random.shuffle(train_examples)
+            cutoff = int(len(train_examples) * eval_split)
+            train_examples, valid_examples = train_examples[cutoff:], train_examples[:cutoff]
+        else:
+            log("RECIPE: No --eval-split specified. Will evaluate on train set.")
+            valid_examples = train_examples
+    log(f"RECIPE: Created train/valid split. #train={len(train_examples)} #valid={len(valid_examples)}")
+    return train_examples, valid_examples
 
 @recipe(
     "train.hf.ner",
@@ -65,17 +106,19 @@ def train_hf_ner(datasets: str,
                  epochs: int = 3,
                  model_name: str = "distilbert-base-uncased",
                  label: Optional[str]= None,
-                 batch_size:int=3,
+                 batch_size: int=3,
                  eval_split: Optional[float] = None,
-                 gpu_id:int = -1,
+                 gpu_id: int = -1,
                  learning_rate: float = 2e-5):
+    log("RECIPE: train.hf.ner started.")
     transformers.logging.set_verbosity_error()
-    db = connect()
-    examples = db.get_dataset_examples(datasets)
-    generator, id2lab, lab2id = into_hf_format(examples)
+
+    train_examples, valid_examples = produce_train_eval_datasets(datasets, eval_split)
+    gen_train, gen_valid, label_list, id2lab, lab2id = into_hf_format(train_examples, valid_examples)
+
     prodigy_dataset = DatasetDict(
-        train=Dataset.from_generator(generator),
-        eval=Dataset.from_generator(generator)
+        train=Dataset.from_list(gen_train),
+        eval=Dataset.from_list(gen_valid)
     )
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -102,6 +145,8 @@ def train_hf_ner(datasets: str,
         tokenized_inputs["labels"] = labels
         return tokenized_inputs
 
+    # It seems that I cannot pass the tokenizer to the `.map` method here, which is why
+    # the `tokenize_and_align_labels` function needs to be defined inside of the recipe.
     tokenized_dataset = prodigy_dataset.map(tokenize_and_align_labels, batched=True)
 
     data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer)
@@ -112,18 +157,17 @@ def train_hf_ner(datasets: str,
 
     seqeval = evaluate.load("seqeval")
 
-    label_list = get_label_names(examples)
-
     def compute_metrics(p):
+        """Taken from https://huggingface.co/docs/transformers/tasks/token_classification#load-wnut-17-dataset"""
         predictions, labels = p
         predictions = np.argmax(predictions, axis=2)
 
         true_predictions = [
-            [label_list[p] for (p, l) in zip(prediction, label) if l != -100]
+            [label_list[p] for (p, lab) in zip(prediction, label) if lab != -100]
             for prediction, label in zip(predictions, labels)
         ]
         true_labels = [
-            [label_list[l] for (p, l) in zip(prediction, label) if l != -100]
+            [label_list[lab] for (p, lab) in zip(prediction, label) if lab != -100]
             for prediction, label in zip(predictions, labels)
         ]
 
