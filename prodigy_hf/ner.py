@@ -1,19 +1,22 @@
+import time
 import random
-
-import transformers
 from typing import List, Dict, Iterable, Optional
 from pathlib import Path
 
-import numpy as np
 import evaluate
+import transformers
+import numpy as np
 from datasets import Dataset, DatasetDict
+from datasets.utils.logging import disable_progress_bar
 from transformers import AutoTokenizer, DataCollatorForTokenClassification, AutoModelForTokenClassification, TrainingArguments, Trainer
+from transformers.utils.logging import set_verbosity_error as set_transformers_verbosity_error
 
 from prodigy.components.db import connect
 from prodigy.core import recipe, Arg
 from prodigy.types import NerExample
 from prodigy.components.validate import validate
 from prodigy.util import log
+
 
 def get_label_names(examples: List[Dict], labels: List[str]=None) -> List[str]:
     """Go through all the examples, grab all labels from spans and convert to BI-labels."""
@@ -87,6 +90,54 @@ def produce_train_eval_datasets(datasets: str, eval_split: Optional[float] = Non
     log(f"RECIPE: Created train/valid split. #train={len(train_examples)} #valid={len(valid_examples)}")
     return train_examples, valid_examples
 
+def tokenize_and_align_labels(examples, tokenizer):
+    """Taken from https://huggingface.co/docs/transformers/tasks/token_classification#load-wnut-17-dataset"""
+    tokenized_inputs = tokenizer(examples["tokens"], truncation=True, is_split_into_words=True)
+
+    labels = []
+    for i, label in enumerate(examples["ner_tags"]):
+        word_ids = tokenized_inputs.word_ids(batch_index=i)  # Map tokens to their respective word.
+        previous_word_idx = None
+        label_ids = []
+        for word_idx in word_ids:  # Set the special tokens to -100.
+            if word_idx is None:
+                label_ids.append(-100)
+            elif word_idx != previous_word_idx:  # Only label the first token of a given word.
+                label_ids.append(label[word_idx])
+            else:
+                label_ids.append(-100)
+            previous_word_idx = word_idx
+        labels.append(label_ids)
+
+    tokenized_inputs["labels"] = labels
+    return tokenized_inputs
+
+def build_metrics_func(label_list):
+    seqeval = evaluate.load("seqeval")
+
+    def compute_metrics(p):
+        """Taken from https://huggingface.co/docs/transformers/tasks/token_classification#load-wnut-17-dataset"""
+        predictions, labels = p
+        predictions = np.argmax(predictions, axis=2)
+
+        true_predictions = [
+            [label_list[p] for (p, lab) in zip(prediction, label) if lab != -100]
+            for prediction, label in zip(predictions, labels)
+        ]
+        true_labels = [
+            [label_list[lab] for (p, lab) in zip(prediction, label) if lab != -100]
+            for prediction, label in zip(predictions, labels)
+        ]
+
+        results = seqeval.compute(predictions=true_predictions, references=true_labels)
+        return {
+            "precision": results["overall_precision"],
+            "recall": results["overall_recall"],
+            "f1": results["overall_f1"],
+        }
+
+    return compute_metrics
+
 @recipe(
     "train.hf.ner",
     # fmt: off
@@ -111,7 +162,8 @@ def train_hf_ner(datasets: str,
                  gpu_id: int = -1,
                  learning_rate: float = 2e-5):
     log("RECIPE: train.hf.ner started.")
-    transformers.logging.set_verbosity_error()
+    set_transformers_verbosity_error()
+    disable_progress_bar()
 
     train_examples, valid_examples = produce_train_eval_datasets(datasets, eval_split)
     gen_train, gen_valid, label_list, id2lab, lab2id = into_hf_format(train_examples, valid_examples)
@@ -121,63 +173,14 @@ def train_hf_ner(datasets: str,
         eval=Dataset.from_list(gen_valid)
     )
 
+    log("RECIPE: Applying tokenizer and aligning labels.")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-
-    def tokenize_and_align_labels(examples):
-        """Taken from https://huggingface.co/docs/transformers/tasks/token_classification#load-wnut-17-dataset"""
-        tokenized_inputs = tokenizer(examples["tokens"], truncation=True, is_split_into_words=True)
-
-        labels = []
-        for i, label in enumerate(examples["ner_tags"]):
-            word_ids = tokenized_inputs.word_ids(batch_index=i)  # Map tokens to their respective word.
-            previous_word_idx = None
-            label_ids = []
-            for word_idx in word_ids:  # Set the special tokens to -100.
-                if word_idx is None:
-                    label_ids.append(-100)
-                elif word_idx != previous_word_idx:  # Only label the first token of a given word.
-                    label_ids.append(label[word_idx])
-                else:
-                    label_ids.append(-100)
-                previous_word_idx = word_idx
-            labels.append(label_ids)
-
-        tokenized_inputs["labels"] = labels
-        return tokenized_inputs
-
-    # It seems that I cannot pass the tokenizer to the `.map` method here, which is why
-    # the `tokenize_and_align_labels` function needs to be defined inside of the recipe.
-    tokenized_dataset = prodigy_dataset.map(tokenize_and_align_labels, batched=True)
+    tokenized_dataset = prodigy_dataset.map(tokenize_and_align_labels, batched=True, fn_kwargs={"tokenizer": tokenizer})
 
     data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer)
-
     model = AutoModelForTokenClassification.from_pretrained(
         model_name, num_labels=len(id2lab), id2label=id2lab, label2id=lab2id
     )
-
-    seqeval = evaluate.load("seqeval")
-
-    def compute_metrics(p):
-        """Taken from https://huggingface.co/docs/transformers/tasks/token_classification#load-wnut-17-dataset"""
-        predictions, labels = p
-        predictions = np.argmax(predictions, axis=2)
-
-        true_predictions = [
-            [label_list[p] for (p, lab) in zip(prediction, label) if lab != -100]
-            for prediction, label in zip(predictions, labels)
-        ]
-        true_labels = [
-            [label_list[lab] for (p, lab) in zip(prediction, label) if lab != -100]
-            for prediction, label in zip(predictions, labels)
-        ]
-
-        results = seqeval.compute(predictions=true_predictions, references=true_labels)
-        return {
-            "precision": results["overall_precision"],
-            "recall": results["overall_recall"],
-            "f1": results["overall_f1"],
-            "accuracy": results["overall_accuracy"],
-    }
 
     training_args = TrainingArguments(
         output_dir=out_dir,
@@ -199,7 +202,10 @@ def train_hf_ner(datasets: str,
         eval_dataset=tokenized_dataset["eval"],
         tokenizer=tokenizer,
         data_collator=data_collator,
-        compute_metrics=compute_metrics,
+        compute_metrics=build_metrics_func(label_list),
     )
-
+    log("RECIPE: Starting training.")
+    tic = time.time()
     trainer.train()
+    toc = time.time()
+    log(f"RECIPE: Total training time: {round(toc - tic)}s.")
