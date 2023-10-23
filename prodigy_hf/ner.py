@@ -55,7 +55,7 @@ def into_hf_format(train_examples: List[Dict], valid_examples: List[Dict]):
     return train_out, valid_out, label_names, id2label, label2id
 
 
-def validate_examples(examples, dataset):
+def validate_examples(examples: List[Dict], dataset:str) -> None:
     """Just make sure that we don't have non-NER tasks in here."""
     log(f"RECIPE: Validating examples for NER task for {dataset} dataset.")
     for ex in examples:
