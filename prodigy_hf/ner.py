@@ -4,7 +4,6 @@ from typing import List, Dict, Iterable, Optional
 from pathlib import Path
 
 import evaluate
-import transformers
 import numpy as np
 from datasets import Dataset, DatasetDict
 from datasets.utils.logging import disable_progress_bar
