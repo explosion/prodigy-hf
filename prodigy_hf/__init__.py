@@ -1,7 +1,7 @@
-from .ner import train_hf_ner
-from .datasets import upload_hf
+from .ner import hf_train_ner
+from .datasets import hf_upload
 
 __all__ = [
-    "train_hf_ner",
-    "upload_hf"
+    "hf_train_ner",
+    "hf_upload"
 ]

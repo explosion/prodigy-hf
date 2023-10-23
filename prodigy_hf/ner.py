@@ -139,7 +139,7 @@ def build_metrics_func(label_list):
     return compute_metrics
 
 @recipe(
-    "train.hf.ner",
+    "hf.train.ner",
     # fmt: off
     datasets=Arg(help="Datasets with NER annotations to train model for"),
     out_dir=Arg(help="Folder to save trained model into"),
@@ -152,7 +152,7 @@ def build_metrics_func(label_list):
     verbose=Arg("--verbose", "-v", help="Output all the logs/warnings from huggingface libraries."),
     # fmt: on
 )
-def train_hf_ner(datasets: str,
+def hf_train_ner(datasets: str,
                  out_dir: Path,
                  epochs: int = 10,
                  model_name: str = "distilbert-base-uncased",
