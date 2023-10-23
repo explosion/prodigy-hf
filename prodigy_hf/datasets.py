@@ -1,5 +1,4 @@
-from pathlib import Path 
-from typing import Optional
+from typing import Dict
 
 import datasets as hf_datasets
 from datasets import Dataset, DatasetDict
@@ -11,7 +10,7 @@ from prodigy.util import ANNOTATOR_ID_ATTR, SESSION_ID_ATTR
 from prodigy.components.db import connect 
 from prodigy.util import log, msg
 
-def collect_datasets(datasets_str):
+def collect_datasets(datasets_str:str) -> Dict:
     """Turn the datasets string into examples."""
     db = connect()
     datasets = datasets_str.split(",")
@@ -79,9 +78,8 @@ def init_repo(repo_id: str) -> None:
 )
 def hf_upload(datasets: str, repo_id:str, keep_annotator_ids: bool=False, no_validation: bool=False, private:bool = False):
     """Uploads annotated datasets from Prodigy to Huggingface."""
-    hf_datasets.utils.logging.set_verbosity_error()
     # This recipe assumes that user ran `huggingface-cli login` beforehand.
-    # https://huggingface.co/spaces/huggingface/datasets-tagging
+    hf_datasets.utils.logging.set_verbosity_error()
     log(f"RECIPE: About to collect {datasets=}.")
     keyed_examples = collect_datasets(datasets)
     if not no_validation:
@@ -91,7 +89,7 @@ def hf_upload(datasets: str, repo_id:str, keep_annotator_ids: bool=False, no_val
             keyed_examples[kind] = list(replace_annotator(examples))
     init_repo(repo_id)
     dataset_dict = DatasetDict({kind: Dataset.from_list(examples) for kind, examples in keyed_examples.items()})
-    dataset_dict.push_to_hub(repo_id)
+    dataset_dict.push_to_hub(repo_id, private=private)
     msg.good(f"Upload completed! You should be able to view repo at https://huggingface.co/datasets/{repo_id}.",)
     msg.info("If you haven't done so already: don't forget update the datacard!")
     log(f"RECIPE: Updated {repo_id=}.")
