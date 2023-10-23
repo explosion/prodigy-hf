@@ -153,7 +153,7 @@ def build_metrics_func(label_list):
 def hf_train_ner(datasets: str,
                  out_dir: Path,
                  epochs: int = 10,
-                 model_name: str = "hf-internal-testing/tiny-random-DistilBertModel",
+                 model_name: str = "distilbert-base-uncased",
                  batch_size: int = 8,
                  eval_split: Optional[float] = None,
                  learning_rate: float = 2e-5,
