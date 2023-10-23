@@ -10,7 +10,7 @@ from prodigy.util import ANNOTATOR_ID_ATTR, SESSION_ID_ATTR
 from prodigy.components.db import connect 
 from prodigy.util import log, msg
 
-def collect_datasets(datasets_str:str) -> Dict:
+def collect_datasets(datasets_str:str, patch_values: bool = False) -> Dict:
     """Turn the datasets string into examples."""
     db = connect()
     datasets = datasets_str.split(",")
@@ -25,6 +25,14 @@ def collect_datasets(datasets_str:str) -> Dict:
                 keyed_examples[kind] = []
         keyed_examples[kind].extend(db.get_dataset_examples(name))
     
+    if patch_values:
+        features = find_all_feature_keys(keyed_examples)
+        for kind, examples in keyed_examples.items():
+            for ex in examples:
+                for key in features:
+                    if key not in ex:
+                        ex[key] = None
+
     n_examples = 0 
     for kind, examples in keyed_examples.items():
         log(f"RECIPE: Collected {len(examples)} examples for {kind=}")
@@ -66,24 +74,30 @@ def init_repo(repo_id: str) -> None:
         log("RECIPE: Repo already exists. Won't create card.")
 
 
+def find_all_feature_keys(keyed_examples):
+    features = set()
+    for kind, examples in keyed_examples.items():
+        for ex in examples:
+            features = features.union(ex.keys())
+    return features 
+
 @recipe(
     "hf.upload",
     # fmt: off
     datasets=Arg(help="Datasets with NER annotations to train model for"),
     repo_id=Arg(help="Name of upstream dataset to upload data into"),
     keep_annotator_ids=Arg("--keep-annotator-ids", "-k", help="Don't anonymise annotator ids."),
-    no_validation=Arg("--no-validation", "-nv", help="Don't validate the datasets."),
+    patch_values=Arg("--patch-values", "-nv", help="If keys are missing between datasets, patch them with `None` values."),
     private=Arg("--private", "-p", help="Keep this dataset private."),
     # fmt: on
 )
-def hf_upload(datasets: str, repo_id:str, keep_annotator_ids: bool=False, no_validation: bool=False, private:bool = False):
+def hf_upload(datasets: str, repo_id:str, keep_annotator_ids: bool=False, patch_values: bool=False, private:bool = False):
     """Uploads annotated datasets from Prodigy to Huggingface."""
     # This recipe assumes that user ran `huggingface-cli login` beforehand.
     hf_datasets.utils.logging.set_verbosity_error()
     log(f"RECIPE: About to collect {datasets=}.")
-    keyed_examples = collect_datasets(datasets)
-    if not no_validation:
-        validate(keyed_examples)
+    keyed_examples = collect_datasets(datasets, patch_values=patch_values)
+
     if not keep_annotator_ids:
         for kind, examples in keyed_examples.items():
             keyed_examples[kind] = list(replace_annotator(examples))
