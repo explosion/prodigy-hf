@@ -25,19 +25,22 @@ jobs:
           path: ./prodigy
           ssh-key: ${{ secrets.GHA_PRODIGY_READ }}
 
-      - name: Install and setup Prodigy
+      - name: Install Prodigy
         run: |
           ls -la
           pip install ./prodigy
           python -m prodigy --help
-          python -m prodigy db-in fashion tests/datasets/fashion-train.jsonl
-          python -m prodigy db-in fashion-eval tests/datasets/fashion-eval.jsonl
 
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -e .
           pip install ruff pytest
+      
+      - name: Populate DB 
+        run: | 
+          python -m prodigy db-in fashion tests/datasets/fashion-train.jsonl
+          python -m prodigy db-in fashion-eval tests/datasets/fashion-valid.jsonl
       
       - name: Run ruff
         if: always()
