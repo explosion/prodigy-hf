@@ -61,7 +61,7 @@ def validate_examples(examples, dataset):
     log(f"RECIPE: Validating examples for NER task for {dataset} dataset.")
     for ex in examples:
         validate(NerExample, ex, error_msg=f"Found an invalid example for NER: {ex} from {dataset}.")
-    log(f"RECIPE: Validation complete.")
+    log("RECIPE: Validation complete.")
 
 
 def produce_train_eval_datasets(datasets: str, eval_split: Optional[float] = None):
@@ -148,19 +148,17 @@ def build_metrics_func(label_list):
     label=Arg("--label", "-l", help="Subset of comma-separated label(s) to train model for"),
     batch_size=Arg("--batch-size", "-bs", help="Batch size."),
     eval_split=Arg("--eval-split", "-es", help="If no evaluation sets are provided for a component, split off a a percentage of the training examples for evaluation."),
-    gpu_id=Arg("--gpu-id", "-g", help="GPU id for training on GPU."),
     learning_rate=Arg("--learning-rate", "-lr", help="Learning rate."),
     verbose=Arg("--verbose", "-v", help="Output all the logs/warnings from huggingface libraries."),
     # fmt: on
 )
 def train_hf_ner(datasets: str,
                  out_dir: Path,
-                 epochs: int = 3,
+                 epochs: int = 10,
                  model_name: str = "distilbert-base-uncased",
-                 label: Optional[str]= None,
-                 batch_size: int=3,
+                 label: Optional[str] =  None,
+                 batch_size: int = 8,
                  eval_split: Optional[float] = None,
-                 gpu_id: int = -1,
                  learning_rate: float = 2e-5,
                  verbose:bool = False):
     log("RECIPE: train.hf.ner started.")
