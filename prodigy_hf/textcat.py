@@ -22,17 +22,17 @@ def get_label_names(examples: List[Dict], variant: Literal["binary", "multi"]) -
     return ["accept", "reject"]
 
 
-def into_hf_format(train_examples: List[Dict], valid_examples: List[Dict]):
+def into_hf_format(train_examples: List[Dict], valid_examples: List[Dict], variant: Literal["binary", "multi"]):
     """Turn the examples into variables/format that Huggingface expects."""
-    label_names = get_label_names(train_examples)
+    label_names = get_label_names(train_examples, variant)
     id2label = {i: n for i, n in enumerate(label_names)}
     label2id = {n: i for i, n in enumerate(label_names)}
 
     def generator(examples) -> Iterable[Dict]:
         for ex in examples:
-            yield {
+            yield = {
                 "text": ex["text"],
-                "label": ex["accept"]
+                "label": label2id[ex["answer"]] if variant =="binary" else label2id[ex["accept"][0]]
             }
 
     train_out = list(generator(train_examples))
@@ -40,10 +40,15 @@ def into_hf_format(train_examples: List[Dict], valid_examples: List[Dict]):
     return train_out, valid_out, label_names, id2label, label2id
 
 
+def filter_examples(examples: List[Dict], variant: Literal["binary", "multi"]):
+    for ex in examples:
+        if (ex['answer'] != 'ignore'): 
+            yield ex
+ 
 def validate_examples(examples: List[Dict], dataset:str, variant: Literal["binary", "multi"]) -> None:
     """Just make sure that we don't have non-NER tasks in here."""
     log(f"RECIPE: Validating examples for textcat task for {dataset} dataset.")
-    label_names = get_label_names(examples)
+    label_names = get_label_names(examples, variant=variant)
     for ex in examples:
         if variant == "multi":
             options = [opt['id'] for opt in ex['options']]
@@ -58,9 +63,14 @@ def produce_train_eval_datasets(datasets: str, eval_split: Optional[float] = Non
     db = connect()
     train_examples = []
     valid_examples = []
+    variant = None
     for dataset in datasets.split(","):
         examples = db.get_dataset_examples(dataset.replace("eval:", ""))
-        validate_examples(examples, dataset)
+        if variant is None:
+            variant = "multi" if 'options' in examples[0] else "binary"
+            log(f"RECIPE: Assuming {variant=}.")
+        examples = list(filter_examples(examples, variant=variant))
+        validate_examples(examples, dataset, variant=variant)
         if "eval:" in dataset:
             valid_examples.extend(examples)
         else:
@@ -77,7 +87,7 @@ def produce_train_eval_datasets(datasets: str, eval_split: Optional[float] = Non
             log("RECIPE: No --eval-split specified. Will evaluate on train set.")
             valid_examples = train_examples
     log(f"RECIPE: Created train/valid split. #train={len(train_examples)} #valid={len(valid_examples)}")
-    return train_examples, valid_examples
+    return train_examples, valid_examples, variant
 
 
 def build_metrics_func(label_list):
@@ -92,7 +102,7 @@ def build_metrics_func(label_list):
     return compute_metrics
 
 @recipe(
-    "hf.train.ner",
+    "hf.train.textcat",
     # fmt: off
     datasets=Arg(help="Datasets with NER annotations to train model for"),
     out_dir=Arg(help="Folder to save trained model into"),
@@ -104,21 +114,21 @@ def build_metrics_func(label_list):
     verbose=Arg("--verbose", "-v", help="Output all the logs/warnings from Huggingface libraries."),
     # fmt: on
 )
-def hf_train_ner(datasets: str,
-                 out_dir: Path,
-                 epochs: int = 10,
-                 model_name: str = "distilbert-base-uncased",
-                 batch_size: int = 8,
-                 eval_split: Optional[float] = None,
-                 learning_rate: float = 2e-5,
-                 verbose:bool = False):
+def hf_train_textcat(datasets: str,
+                     out_dir: Path,
+                     epochs: int = 10,
+                     model_name: str = "distilbert-base-uncased",
+                     batch_size: int = 8,
+                     eval_split: Optional[float] = None,
+                     learning_rate: float = 2e-5,
+                     verbose:bool = False):
     log("RECIPE: train.hf.ner started.")
     if not verbose:
         set_transformers_verbosity_error()
         disable_progress_bar()
 
-    train_examples, valid_examples = produce_train_eval_datasets(datasets, eval_split)
-    gen_train, gen_valid, label_list, id2lab, lab2id = into_hf_format(train_examples, valid_examples)
+    train_examples, valid_examples, variant = produce_train_eval_datasets(datasets, eval_split)
+    gen_train, gen_valid, label_list, id2lab, lab2id = into_hf_format(train_examples, valid_examples, variant)
 
     prodigy_dataset = DatasetDict(
         train=Dataset.from_list(gen_train),
@@ -129,7 +139,7 @@ def hf_train_ner(datasets: str,
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     
     def preprocess_function(examples):
-        return tokenizer(examples["text"], truncation=True)
+        return tokenizer(examples["text"], truncation=True, padding=True)
 
     tokenized_dataset = prodigy_dataset.map(preprocess_function, batched=True)
 
