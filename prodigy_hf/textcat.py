@@ -30,7 +30,7 @@ def into_hf_format(train_examples: List[Dict], valid_examples: List[Dict], varia
 
     def generator(examples) -> Iterable[Dict]:
         for ex in examples:
-            yield = {
+            yield {
                 "text": ex["text"],
                 "label": label2id[ex["answer"]] if variant =="binary" else label2id[ex["accept"][0]]
             }
