@@ -70,6 +70,8 @@ def produce_train_eval_datasets(datasets: str, eval_split: Optional[float] = Non
     valid_examples = []
     for dataset in datasets.split(","):
         examples = db.get_dataset_examples(dataset.replace("eval:", ""))
+        if len(examples) == 0:
+            raise ValueError(f"It seems dataset {dataset} has 0 examples in it.")
         validate_examples(examples, dataset)
         if "eval:" in dataset:
             valid_examples.extend(examples)

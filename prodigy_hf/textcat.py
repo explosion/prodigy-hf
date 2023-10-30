@@ -30,10 +30,17 @@ def into_hf_format(train_examples: List[Dict], valid_examples: List[Dict], varia
 
     def generator(examples) -> Iterable[Dict]:
         for ex in examples:
-            yield {
-                "text": ex["text"],
-                "label": label2id[ex["answer"]] if variant =="binary" else label2id[ex["accept"][0]]
-            }
+            label = None
+            if variant == "binary":
+                label = label2id[ex["answer"]]
+            if (variant == "multi") and ("accept" in ex.keys()):
+                # It could be that the dataset was accepted but didn't have anything selected. 
+                label = label2id[ex["accept"][0]]
+            if label: 
+                yield {
+                    "text": ex["text"],
+                    "label": label
+                }
 
     train_out = list(generator(train_examples))
     valid_out = list(generator(valid_examples))
@@ -66,7 +73,8 @@ def produce_train_eval_datasets(datasets: str, eval_split: Optional[float] = Non
     variant = None
     for dataset in datasets.split(","):
         examples = db.get_dataset_examples(dataset.replace("eval:", ""))
-        print(datasets, examples)
+        if len(examples) == 0:
+            raise ValueError(f"It seems dataset {dataset} has 0 examples in it.")
         if variant is None:
             variant = "multi" if 'options' in examples[0] else "binary"
             log(f"RECIPE: Assuming {variant=}.")
