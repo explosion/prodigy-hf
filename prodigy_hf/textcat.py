@@ -33,7 +33,7 @@ def into_hf_format(train_examples: List[Dict], valid_examples: List[Dict], varia
             label = None
             if variant == "binary":
                 label = label2id[ex["answer"]]
-            if (variant == "multi") and ("accept" in ex.keys()):
+            if (variant == "multi") and ex['accept']:
                 # It could be that the dataset was accepted but didn't have anything selected. 
                 label = label2id[ex["accept"][0]]
             if label: 
