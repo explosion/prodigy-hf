@@ -41,6 +41,8 @@ jobs:
         run: | 
           python -m prodigy db-in fashion tests/datasets/fashion-train.jsonl
           python -m prodigy db-in fashion-eval tests/datasets/fashion-valid.jsonl
+          python -m prodigy db-in textcat-binary tests/datasets/textcat-binary.jsonl
+          python -m prodigy db-in textcat-multi tests/datasets/textcat-multi.jsonl
       
       - name: Run ruff
         if: always()

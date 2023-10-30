@@ -66,6 +66,7 @@ def produce_train_eval_datasets(datasets: str, eval_split: Optional[float] = Non
     variant = None
     for dataset in datasets.split(","):
         examples = db.get_dataset_examples(dataset.replace("eval:", ""))
+        print(datasets, examples)
         if variant is None:
             variant = "multi" if 'options' in examples[0] else "binary"
             log(f"RECIPE: Assuming {variant=}.")
