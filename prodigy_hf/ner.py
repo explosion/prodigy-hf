@@ -265,6 +265,7 @@ def to_spacy_doc(text: str, hf_model: TokenClassificationPipeline, nlp: Language
 
 
 def get_hf_config_labels(hf_mod: TokenClassificationPipeline):
+    # Hugging Face uses a BI (sortof like  BILOU) label standard. O stands for no entity.
     keys = hf_mod.model.config.label2id.keys()
     unique = set([k.replace("B-", "").replace("I-", "") for k in keys])
     return [k for k in unique if k != "O"]
