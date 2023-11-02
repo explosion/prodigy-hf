@@ -1,20 +1,33 @@
-import time
 import random
-from typing import List, Dict, Iterable, Optional
+import time
 from pathlib import Path
+from typing import Dict, Iterable, List, Optional
 
 import evaluate
 import numpy as np
+import spacy
 from datasets import Dataset, DatasetDict
 from datasets.utils.logging import disable_progress_bar
-from transformers import AutoTokenizer, DataCollatorForTokenClassification, AutoModelForTokenClassification, TrainingArguments, Trainer
-from transformers.utils.logging import set_verbosity_error as set_transformers_verbosity_error
-
 from prodigy.components.db import connect
-from prodigy.core import recipe, Arg
-from prodigy.types import NerExample
 from prodigy.components.validate import validate
+from prodigy.components.stream import get_stream
+from prodigy.components.preprocess import add_tokens
+from prodigy.components.decorators import support_both_streams
+from prodigy.core import Arg, recipe
+from prodigy.types import NerExample
 from prodigy.util import log
+from spacy.language import Language
+from spacy.tokens import Doc
+from transformers import (
+    AutoModelForTokenClassification,
+    AutoTokenizer,
+    DataCollatorForTokenClassification,
+    Trainer,
+    TrainingArguments,
+    pipeline,
+)
+from transformers.pipelines.token_classification import TokenClassificationPipeline
+from transformers.utils.logging import set_verbosity_error as set_transformers_verbosity_error
 
 
 def get_label_names(examples: List[Dict], labels: List[str]=None) -> List[str]:
@@ -209,3 +222,92 @@ def hf_train_ner(datasets: str,
     trainer.train()
     toc = time.time()
     log(f"RECIPE: Total training time: {round(toc - tic)}s.")
+
+
+class EntityMerger:
+    """Helper class to make merging of B- I- tokens from hf-transformer easier."""
+    def __init__(self, text, label, start, end):
+        self.text = text
+        self.label = label.replace("B-", "")
+        self.start = start
+        self.end = end
+    
+    def __repr__(self) -> str:
+        return f"<Entity {self.label} {self.text[self.start:self.end]}>"
+
+    def append_hf_tok(self, tok: dict) -> None:
+        assert tok['entity'].startswith("I-")
+        assert tok['entity'].replace("I-", "") == self.label
+        self.end = tok['end']
+
+def to_spacy_doc(text: str, hf_model: TokenClassificationPipeline, nlp: Language) -> Doc:
+    """Turns the predictions that come out of a HF model into a spaCy doc."""
+    # The entities that come out of hf_model are ordered, so we can loop like this
+    entities = []
+    current = None
+    for ex in hf_model(text):
+        if ex['entity'][0] == 'B':
+            if current: 
+                entities.append(current)
+            current = EntityMerger(text=text, label=ex['entity'], start=ex['start'], end=ex['end'])
+        else:
+            current.append_hf_tok(ex)
+    entities.append(current)
+
+    # Now that we have the entities merged, we can char_span it to the spaCy doc
+    doc = nlp(text)
+    spans = []
+    for ent in entities:
+        span = doc.char_span(ent.start, ent.end, label=ent.label)
+        spans.append(span)
+    doc.ents = spans
+    return doc
+
+
+def get_hf_config_labels(hf_mod: TokenClassificationPipeline):
+    # Hugging Face uses a BI (sortof like  BILOU) label standard. O stands for no entity.
+    keys = hf_mod.model.config.label2id.keys()
+    unique = set([k.replace("B-", "").replace("I-", "") for k in keys])
+    return [k for k in unique if k != "O"]
+
+
+@recipe(
+    "hf.ner.correct",
+    # fmt: off
+    dataset=Arg(help="Dataset to write annotations into"),
+    model=Arg(help="Path to transformer model. Can also point to model on hub."),
+    source=Arg(help="Source file to annotate"),
+    lang=Arg("--lang", "-l", help="Language of the spaCy tokeniser"),
+    # fmt: on
+)
+def hf_ner_correct(dataset: str,
+                 model: str,
+                 source: str,
+                 lang: str = "en"):
+    log("RECIPE: train.hf.ner started.")
+    set_transformers_verbosity_error()
+    stream = get_stream(source, rehash=True, dedup=True)
+    nlp = spacy.blank(lang)
+    tfm_model: TokenClassificationPipeline = pipeline("ner", model=model)
+    labels = get_hf_config_labels(tfm_model)
+    log(f"RECIPE: Transformer model loaded with {labels=}.")
+
+    @support_both_streams(stream_arg="stream")
+    def attach_predictions(stream):
+        for ex in stream:
+            doc = to_spacy_doc(ex['text'], tfm_model, nlp)
+            doc_dict = doc.to_json()
+            ex['spans'] = doc_dict['ents']
+            yield ex
+
+    stream.apply(attach_predictions)
+    stream.apply(add_tokens, nlp=nlp, stream=stream)
+
+    return {
+        "dataset": dataset,
+        "view_id": "ner_manual",
+        "stream": stream,
+        "config": {
+            "labels": labels
+        }
+    }
