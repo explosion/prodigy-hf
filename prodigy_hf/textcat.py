@@ -1,18 +1,27 @@
-import time
 import random
-from typing import List, Dict, Iterable, Optional, Literal
+import time
 from pathlib import Path
+from typing import Dict, Iterable, List, Literal, Optional
 
 import evaluate
 import numpy as np
 from datasets import Dataset, DatasetDict
 from datasets.utils.logging import disable_progress_bar
-from transformers import AutoTokenizer, DataCollatorWithPadding, AutoModelForSequenceClassification, TrainingArguments, Trainer
-from transformers.utils.logging import set_verbosity_error as set_transformers_verbosity_error
-
 from prodigy.components.db import connect
-from prodigy.core import recipe, Arg
+from prodigy.components.decorators import support_both_streams
+from prodigy.components.preprocess import add_tokens
+from prodigy.components.stream import get_stream
+from prodigy.core import Arg, recipe
 from prodigy.util import log
+from transformers import (
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    DataCollatorWithPadding,
+    Trainer,
+    TrainingArguments,
+    pipeline
+)
+from transformers.utils.logging import set_verbosity_error as set_transformers_verbosity_error
 
 
 def get_label_names(examples: List[Dict], variant: Literal["binary", "multi"]) -> List[str]:
@@ -184,3 +193,47 @@ def hf_train_textcat(datasets: str,
     trainer.train()
     toc = time.time()
     log(f"RECIPE: Total training time: {round(toc - tic)}s.")
+
+
+def add_model_predictions(stream, hf_pipeline, model_labels):
+    for ex in stream:
+        out = hf_pipeline(ex['text'])[0]
+        print(out)
+        ex['options'] = []
+        for lab in model_labels:
+            option = {"id": lab, "text": lab}
+            if lab == out['label']:
+                option['meta'] = out['score']
+            ex['options'].append(option)
+        ex['accept'] = [out['label']]
+        yield ex
+
+
+@recipe(
+    "hf.textcat.correct",
+    # fmt: off
+    dataset=Arg(help="Dataset to write annotations into"),
+    model=Arg(help="Path to transformer model. Can also point to model on hub."),
+    source=Arg(help="Source file to annotate"),
+    # fmt: on
+)
+def hf_textcat_correct(dataset: str,
+                 model: str,
+                 source: str):
+    log("RECIPE: train.hf.ner started.")
+    set_transformers_verbosity_error()
+    stream = get_stream(source, rehash=True, dedup=True)
+    tfm_model = pipeline("text-classification", model=model)
+    model_labels = list(tfm_model.model.config.label2id.keys())
+    log(f"RECIPE: Transformer model loaded with {model_labels=}.")
+    stream.apply(add_model_predictions, hf_pipeline=tfm_model, model_labels=model_labels)
+
+    return {
+        "dataset": dataset,
+        "view_id": "choice",
+        "stream": stream,
+        "config": {
+            "choice_style": "single",
+            "choice_auto_accept": True
+        }
+    }
