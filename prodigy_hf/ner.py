@@ -251,7 +251,10 @@ def to_spacy_doc(text: str, hf_model: TokenClassificationPipeline, nlp: Language
                 entities.append(current)
             current = EntityMerger(text=text, label=ex['entity'], start=ex['start'], end=ex['end'])
         else:
-            current.append_hf_tok(ex)
+            if current is not None:
+                # Theoretically the model could output an `I` without a `B` before. 
+                # Just to make sure that isn't hapening at the start we add this if.
+                current.append_hf_tok(ex)
     entities.append(current)
 
     # Now that we have the entities merged, we can char_span it to the spaCy doc
@@ -259,7 +262,10 @@ def to_spacy_doc(text: str, hf_model: TokenClassificationPipeline, nlp: Language
     spans = []
     for ent in entities:
         span = doc.char_span(ent.start, ent.end, label=ent.label)
-        spans.append(span)
+        if span:
+            # span can be None if the found span is invalid.
+            spans.append(span)
+    print(spans)
     doc.ents = spans
     return doc
 
@@ -295,6 +301,7 @@ def hf_ner_correct(dataset: str,
     @support_both_streams(stream_arg="stream")
     def attach_predictions(stream):
         for ex in stream:
+            print(ex)
             doc = to_spacy_doc(ex['text'], tfm_model, nlp)
             doc_dict = doc.to_json()
             ex['spans'] = doc_dict['ents']
