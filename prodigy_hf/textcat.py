@@ -28,7 +28,8 @@ def get_label_names(examples: List[Dict], variant: Literal["binary", "multi"]) -
     """We have to assume exclusive textcat here. So the first example contains all labels."""
     if variant == "multi":
         return [ex['id'] for ex in examples[0]['options']]
-    return ["accept", "reject"]
+    label = examples[0]['label']
+    return [f"accept-{label}", f"reject-{label}"]
 
 
 def into_hf_format(train_examples: List[Dict], valid_examples: List[Dict], variant: Literal["binary", "multi"]):
@@ -41,7 +42,12 @@ def into_hf_format(train_examples: List[Dict], valid_examples: List[Dict], varia
         for ex in examples:
             label = None
             if variant == "binary":
-                label = label2id[ex["answer"]]
+                # We need the label in the label_names, so we check for accept/reject this way. 
+                # This doesn't feel great, but should get the job done 99.9% of the time
+                if ex["answer"] in label_names[0]:
+                    label = label2id[label_names[0]]
+                if ex["answer"] in label_names[1]:
+                    label = label2id[label_names[1]]
             if (variant == "multi") and ex['accept']:
                 # It could be that the dataset was accepted but didn't have anything selected. 
                 label = label2id[ex["accept"][0]]
@@ -69,8 +75,6 @@ def validate_examples(examples: List[Dict], dataset:str, variant: Literal["binar
         if variant == "multi":
             options = [opt['id'] for opt in ex['options']]
             assert set(options) == set(label_names),  f"Found an example that has different labels {ex} than expected {label_names}."
-        else:
-            assert ex["answer"] in ["accept", "reject"], f"Found an example {ex} that doesn't have binary answer option."
     log("RECIPE: Validation complete.")
 
 
@@ -198,7 +202,6 @@ def hf_train_textcat(datasets: str,
 def add_model_predictions(stream, hf_pipeline, model_labels):
     for ex in stream:
         out = hf_pipeline(ex['text'])[0]
-        print(out)
         ex['options'] = []
         for lab in model_labels:
             option = {"id": lab, "text": lab}
