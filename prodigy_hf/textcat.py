@@ -10,7 +10,7 @@ from datasets.utils.logging import disable_progress_bar
 from prodigy.components.db import connect
 from prodigy.components.stream import get_stream
 from prodigy.core import Arg, recipe
-from prodigy.util import log
+from prodigy.util import log, msg
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -137,6 +137,7 @@ def hf_train_textcat(datasets: str,
                      eval_split: Optional[float] = None,
                      learning_rate: float = 2e-5,
                      verbose:bool = False):
+    """Train a transformer model for text classification."""
     log("RECIPE: train.hf.ner started.")
     if not verbose:
         set_transformers_verbosity_error()
@@ -217,12 +218,20 @@ def add_model_predictions(stream, hf_pipeline, model_labels):
 def hf_textcat_correct(dataset: str,
                  model: str,
                  source: str):
+    """Use transformer model to help you annotate textcat data."""
+    
     log("RECIPE: train.hf.ner started.")
     set_transformers_verbosity_error()
+    
     stream = get_stream(source, rehash=True, dedup=True)
     tfm_model = pipeline("text-classification", model=model)
     model_labels = list(tfm_model.model.config.label2id.keys())
     log(f"RECIPE: Transformer model loaded with {model_labels=}.")
+
+    # Catch models trained on binary data. We don't support these because the only
+    # possible labels are "ACCEPT" and "REJECT" and we don't have access to the original label.
+    if set(model_labels) == set(["accept", "reject"]):
+        msg.fail("This recipe only supports Hugging Face models that are trained on non-binary data.", exits=True)
     stream.apply(add_model_predictions, hf_pipeline=tfm_model, model_labels=model_labels)
 
     return {
