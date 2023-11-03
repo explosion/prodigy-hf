@@ -8,8 +8,6 @@ import numpy as np
 from datasets import Dataset, DatasetDict
 from datasets.utils.logging import disable_progress_bar
 from prodigy.components.db import connect
-from prodigy.components.decorators import support_both_streams
-from prodigy.components.preprocess import add_tokens
 from prodigy.components.stream import get_stream
 from prodigy.core import Arg, recipe
 from prodigy.util import log
