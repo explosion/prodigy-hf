@@ -28,8 +28,7 @@ def get_label_names(examples: List[Dict], variant: Literal["binary", "multi"]) -
     """We have to assume exclusive textcat here. So the first example contains all labels."""
     if variant == "multi":
         return [ex['id'] for ex in examples[0]['options']]
-    label = examples[0]['label']
-    return [f"accept-{label}", f"reject-{label}"]
+    return ["accept", "reject"]
 
 
 def into_hf_format(train_examples: List[Dict], valid_examples: List[Dict], variant: Literal["binary", "multi"]):
@@ -42,12 +41,7 @@ def into_hf_format(train_examples: List[Dict], valid_examples: List[Dict], varia
         for ex in examples:
             label = None
             if variant == "binary":
-                # We need the label in the label_names, so we check for accept/reject this way. 
-                # This doesn't feel great, but should get the job done 99.9% of the time
-                if ex["answer"] in label_names[0]:
-                    label = label2id[label_names[0]]
-                if ex["answer"] in label_names[1]:
-                    label = label2id[label_names[1]]
+                label = label2id[ex["answer"]]
             if (variant == "multi") and ex['accept']:
                 # It could be that the dataset was accepted but didn't have anything selected. 
                 label = label2id[ex["accept"][0]]
@@ -66,6 +60,7 @@ def filter_examples(examples: List[Dict], variant: Literal["binary", "multi"]):
     for ex in examples:
         if (ex['answer'] != 'ignore'): 
             yield ex
+ 
  
 def validate_examples(examples: List[Dict], dataset:str, variant: Literal["binary", "multi"]) -> None:
     """Just make sure that we don't have non-NER tasks in here."""
