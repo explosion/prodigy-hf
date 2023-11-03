@@ -203,7 +203,6 @@ def add_model_predictions(stream, hf_pipeline, model_labels):
                 option['meta'] = out['score']
             ex['options'].append(option)
         ex['accept'] = [out['label']]
-        print(ex)
         yield ex
 
 

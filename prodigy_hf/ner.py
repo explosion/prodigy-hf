@@ -265,7 +265,6 @@ def to_spacy_doc(text: str, hf_model: TokenClassificationPipeline, nlp: Language
         if span:
             # span can be None if the found span is invalid.
             spans.append(span)
-    print(spans)
     doc.ents = spans
     return doc
 
@@ -301,7 +300,6 @@ def hf_ner_correct(dataset: str,
     @support_both_streams(stream_arg="stream")
     def attach_predictions(stream):
         for ex in stream:
-            print(ex)
             doc = to_spacy_doc(ex['text'], tfm_model, nlp)
             doc_dict = doc.to_json()
             ex['spans'] = doc_dict['ents']
