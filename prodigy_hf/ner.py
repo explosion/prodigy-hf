@@ -277,7 +277,7 @@ def get_hf_config_labels(hf_mod: TokenClassificationPipeline):
 
 
 @recipe(
-    "hf.ner.correct",
+    "hf.correct.ner",
     # fmt: off
     dataset=Arg(help="Dataset to write annotations into"),
     model=Arg(help="Path to transformer model. Can also point to model on hub."),
