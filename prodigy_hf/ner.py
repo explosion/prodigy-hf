@@ -236,8 +236,6 @@ class EntityMerger:
         return f"<Entity {self.label} {self.text[self.start:self.end]}>"
 
     def append_hf_tok(self, tok: dict) -> None:
-        assert tok['entity'].startswith("I-")
-        assert tok['entity'].replace("I-", "") == self.label
         self.end = tok['end']
 
 def to_spacy_doc(text: str, hf_model: TokenClassificationPipeline, nlp: Language) -> Doc:
