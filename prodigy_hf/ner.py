@@ -253,7 +253,8 @@ def to_spacy_doc(text: str, hf_model: TokenClassificationPipeline, nlp: Language
                 # Theoretically the model could output an `I` without a `B` before. 
                 # Just to make sure that isn't hapening at the start we add this if.
                 current.append_hf_tok(ex)
-    entities.append(current)
+    if current is not None:
+        entities.append(current)
 
     # Now that we have the entities merged, we can char_span it to the spaCy doc
     doc = nlp(text)
