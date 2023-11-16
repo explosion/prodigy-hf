@@ -207,7 +207,7 @@ def add_model_predictions(stream, hf_pipeline, model_labels):
 
 
 @recipe(
-    "hf.correct.textcat",
+    "hf.textcat.correct",
     # fmt: off
     dataset=Arg(help="Dataset to write annotations into"),
     model=Arg(help="Path to transformer model. Can also point to model on hub."),
