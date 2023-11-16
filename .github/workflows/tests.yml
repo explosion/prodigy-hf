@@ -44,6 +44,14 @@ jobs:
           python -m prodigy db-in textcat-binary tests/datasets/textcat-binary.jsonl
           python -m prodigy db-in textcat-multi tests/datasets/textcat-multi.jsonl
       
+      - name: Confirm recipe names
+        run: | 
+          python -m prodigy hf.ner.correct --help
+          python -m prodigy hf.textcat.correct --help
+          python -m prodigy hf.train.ner --help
+          python -m prodigy hf.train.textcat --help
+          python -m prodigy hf.upload --help
+      
       - name: Run ruff
         if: always()
         shell: bash
