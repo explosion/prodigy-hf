@@ -35,9 +35,9 @@ def test_smoke_textcat(dataset, tmpdir):
     # possible labels are "ACCEPT" and "REJECT" and we don't have access to the original label.
     if "binary" in dataset:
         with pytest.raises(SystemExit):
-            prodigy_dict = hf_textcat_correct("xxx", f"{tmpdir}/checkpoint-2", "dataset:fashion")
+            prodigy_dict = hf_textcat_correct("xxx", f"{tmpdir}/checkpoint-3", "dataset:fashion")
     else:
         # The multi-scenario is fine, because the labels carry the actual name
-        prodigy_dict = hf_textcat_correct("xxx", f"{tmpdir}/checkpoint-2", "dataset:fashion")
+        prodigy_dict = hf_textcat_correct("xxx", f"{tmpdir}/checkpoint-3", "dataset:fashion")
         for ex in prodigy_dict['stream']:
             assert set([lab['id'] for lab in ex['options']]) == set(["foo", "bar", "buz"])
