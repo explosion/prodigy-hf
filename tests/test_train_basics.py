@@ -31,17 +31,13 @@ def test_smoke_textcat(dataset, tmpdir):
     with pytest.raises(ValueError):
         hf_train_textcat("does-not-exist", tmpdir, epochs=1, model_name="hf-internal-testing/tiny-random-DistilBertModel")
     
-    import os
-    for item in os.listdir(tmpdir):
-        item_path = os.path.join(tmpdir, item)
-        print(item_path)
     # Catch models trained on binary data. We don't support these because the only
     # possible labels are "ACCEPT" and "REJECT" and we don't have access to the original label.
     if "binary" in dataset:
         with pytest.raises(SystemExit):
-            prodigy_dict = hf_textcat_correct("xxx", f"{tmpdir}/checkpoint-2", "dataset:fashion")
+            prodigy_dict = hf_textcat_correct("xxx", f"{tmpdir}/checkpoint-3", "dataset:fashion")
     else:
         # The multi-scenario is fine, because the labels carry the actual name
-        prodigy_dict = hf_textcat_correct("xxx", f"{tmpdir}/checkpoint-2", "dataset:fashion")
+        prodigy_dict = hf_textcat_correct("xxx", f"{tmpdir}/checkpoint-3", "dataset:fashion")
         for ex in prodigy_dict['stream']:
             assert set([lab['id'] for lab in ex['options']]) == set(["foo", "bar", "buz"])
