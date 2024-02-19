@@ -65,4 +65,4 @@ jobs:
       - name: List tempdir contents
         run: |
           echo "Contents of temporary directory:"
-          ls -R $GITHUB_WORKSPACE/tmp/pytest-of-runner/pytest-0/test_smoke_textcat_textcat_bin0/
+          ls -R $GITHUB_WORKSPACE/tmp/pytest-of-runner/
