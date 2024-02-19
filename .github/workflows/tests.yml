@@ -61,3 +61,8 @@ jobs:
         if: always()
         shell: bash
         run: python -m pytest tests
+      
+      - name: List tempdir contents
+        run: |
+          echo "Contents of temporary directory:"
+          ls -R $GITHUB_WORKSPACE/tmp/pytest-of-runner/pytest-0/test_smoke_textcat_textcat_bin0/
