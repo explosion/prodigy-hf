@@ -4,7 +4,7 @@ Check the `.github/workflows/tests.yml` file for more details.
 """
 import os
 import pytest 
-from prodigy_hf import hf_train_ner, hf_train_textcat, hf_ner_correct, hf_textcat_correct
+from prodigy_hf import hf_train_ner, hf_train_textcat, hf_ner_correct
 
 
 def test_smoke_ner(tmpdir):
